@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
-echo "=== Qwen3.5-122B GCP Cloud Run Deploy (Ansible + IAP + qwen.broze.net) ==="
-ansible-playbook ansible/playbook.yml "$@"
-echo "✅ Done! Check the debug output above for DNS records and IAP link."
+SECRETS=~/Secrets/ziggy-ansible-secrets.yml
+echo "=== Qwen Personal Assistant Deploy (llama.cpp + L4 + IAP) ==="
+if [ ! -f "$SECRETS" ]; then
+  echo "ERROR: Secrets file not found at $SECRETS"
+  exit 1
+fi
+ansible-playbook ansible/playbook.yml --extra-vars "@$SECRETS" "$@"
+echo "Done! Check the debug output above for DNS records and IAP link."

@@ -1,55 +1,142 @@
 ---
-- name: Deploy Qwen3.5-122B Personal Assistant (IAP + Custom Domain)
+- name: Deploy Qwen Personal Assistant (llama.cpp + L4 + IAP)
   hosts: localhost
   connection: local
   gather_facts: false
   vars_files:
     - vars.yml
+  vars:
+    project_number: "{{ lookup('pipe', 'gcloud projects describe ' + project_id + ' --format=value(projectNumber)') }}"
+    compute_sa: "{{ project_number }}-compute@developer.gserviceaccount.com"
+    scheduler_sa: "service-{{ project_number }}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
   tasks:
 
+    - name: Verify project_id is set (must come from secrets file)
+      ansible.builtin.assert:
+        that: project_id is defined and project_id | length > 0
+        fail_msg: "project_id not set. Pass --extra-vars @~/Secrets/ziggy-ansible-secrets.yml"
+
     - name: Enable required GCP APIs
-      ansible.builtin.command: gcloud services enable cloudbuild.googleapis.com run.googleapis.com secretmanager.googleapis.com iap.googleapis.com --project={{ project_id }}
+      ansible.builtin.command: >
+        gcloud services enable
+        cloudbuild.googleapis.com
+        run.googleapis.com
+        secretmanager.googleapis.com
+        iap.googleapis.com
+        artifactregistry.googleapis.com
+        cloudscheduler.googleapis.com
+        --project={{ project_id }}
 
     - name: Create HF token secret
       ansible.builtin.command: gcloud secrets create {{ hf_token_secret_name }} --replication-policy=automatic --project={{ project_id }}
       ignore_errors: yes
 
     - name: Add HF token (idempotent)
-      ansible.builtin.shell: echo -n "{{ lookup('env', 'HF_TOKEN') }}" | gcloud secrets versions add {{ hf_token_secret_name }} --data-file=- --project={{ project_id }}
-      environment:
-        HF_TOKEN: "{{ lookup('env', 'HF_TOKEN') }}"
+      ansible.builtin.shell: echo -n "{{ qwen_hf_token }}" | gcloud secrets versions add {{ hf_token_secret_name }} --data-file=- --project={{ project_id }}
+      no_log: true
 
     - name: Grant Cloud Run SA secret access
       ansible.builtin.command: >
         gcloud secrets add-iam-policy-binding {{ hf_token_secret_name }}
-        --member="serviceAccount:{{ lookup('pipe', 'gcloud projects describe ' + project_id + ' --format=value(projectNumber)') }}-compute@developer.gserviceaccount.com"
+        --member="serviceAccount:{{ compute_sa }}"
         --role=roles/secretmanager.secretAccessor
         --project={{ project_id }}
 
-    - name: Build & push container
-      ansible.builtin.command: gcloud builds submit app/ --tag={{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service_name }}:latest --project={{ project_id }}
+    - name: Create Artifact Registry repo (idempotent)
+      ansible.builtin.command: >
+        gcloud artifacts repositories create qwen-repo
+        --repository-format=docker
+        --location={{ region }}
+        --project={{ project_id }}
+      ignore_errors: yes
 
-    - name: Deploy Cloud Run service (122B FP8 + warm instance + no unauth)
+    - name: Build & push container
+      ansible.builtin.command:
+        cmd: >
+          gcloud builds submit app/
+          --tag={{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service_name }}:latest
+          --project={{ project_id }}
+          --timeout=1200
+        chdir: "{{ playbook_dir }}/.."
+
+    - name: Deploy Cloud Run service (llama.cpp + L4 + no unauth)
       ansible.builtin.command: >
         gcloud beta run deploy {{ service_name }}
         --image={{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service_name }}:latest
         --region={{ region }}
         --gpu={{ gpu_count }}
         --gpu-type={{ gpu_type }}
-        --cpu=24 --memory=96Gi
+        --cpu={{ cpu }} --memory={{ memory }}
         --no-cpu-throttling
-        --concurrency=4
+        --concurrency={{ concurrency }}
         --timeout=1200
         --cpu-boost
         --min-instances={{ min_instances }}
         --max-instances={{ max_instances }}
-        --set-env-vars=CMD_ARGS="--model {{ model }} --max-model-len {{ max_model_len }} --quantization {{ quantization }} {{ vllm_extra_args }}"
+        --set-env-vars=^::^MODEL_REPO={{ model_repo }}::MODEL_FILE={{ model_file }}::LLAMA_ARGS={{ llama_args }}
         --set-secrets=HF_TOKEN={{ hf_token_secret_name }}:latest
         --no-allow-unauthenticated
         --project={{ project_id }}
         --quiet
 
-    - name: Map custom domain qwen.broze.net
+    - name: Grant compute SA permission to update Cloud Run service
+      ansible.builtin.command: >
+        gcloud run services add-iam-policy-binding {{ service_name }}
+        --region={{ region }}
+        --member="serviceAccount:{{ compute_sa }}"
+        --role=roles/run.developer
+        --project={{ project_id }}
+
+    - name: Grant Cloud Scheduler permission to act as compute SA
+      ansible.builtin.command: >
+        gcloud iam service-accounts add-iam-policy-binding {{ compute_sa }}
+        --member="serviceAccount:{{ scheduler_sa }}"
+        --role=roles/iam.serviceAccountUser
+        --project={{ project_id }}
+
+    - name: Delete existing wake schedule (for idempotent update)
+      ansible.builtin.command: >
+        gcloud scheduler jobs delete {{ service_name }}-wake
+        --location={{ region }}
+        --project={{ project_id }}
+        --quiet
+      ignore_errors: yes
+
+    - name: Create wake schedule ({{ wake_cron }} {{ schedule_timezone }})
+      ansible.builtin.command: >
+        gcloud scheduler jobs create http {{ service_name }}-wake
+        --location={{ region }}
+        --schedule="{{ wake_cron }}"
+        --time-zone="{{ schedule_timezone }}"
+        --uri="https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service_name }}?updateMask=template.scaling.minInstanceCount"
+        --http-method=PATCH
+        --headers="Content-Type=application/json"
+        --message-body='{"template":{"scaling":{"minInstanceCount":1}}}'
+        --oauth-service-account-email="{{ compute_sa }}"
+        --project={{ project_id }}
+
+    - name: Delete existing sleep schedule (for idempotent update)
+      ansible.builtin.command: >
+        gcloud scheduler jobs delete {{ service_name }}-sleep
+        --location={{ region }}
+        --project={{ project_id }}
+        --quiet
+      ignore_errors: yes
+
+    - name: Create sleep schedule ({{ sleep_cron }} {{ schedule_timezone }})
+      ansible.builtin.command: >
+        gcloud scheduler jobs create http {{ service_name }}-sleep
+        --location={{ region }}
+        --schedule="{{ sleep_cron }}"
+        --time-zone="{{ schedule_timezone }}"
+        --uri="https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service_name }}?updateMask=template.scaling.minInstanceCount"
+        --http-method=PATCH
+        --headers="Content-Type=application/json"
+        --message-body='{"template":{"scaling":{"minInstanceCount":0}}}'
+        --oauth-service-account-email="{{ compute_sa }}"
+        --project={{ project_id }}
+
+    - name: Map custom domain {{ custom_domain }}
       ansible.builtin.command: >
         gcloud run domain-mappings create
         --service={{ service_name }}
@@ -61,8 +148,11 @@
     - name: Final status
       ansible.builtin.debug:
         msg: |
-          ✅ Deployed!
+          Deployed!
           Next steps:
-          1. Run `gcloud run domain-mappings describe {{ service_name }} --region={{ region }}` to see required DNS A/AAAA records and add them to your DNS provider.
-          2. One-time IAP setup: Open Cloud Console → Cloud Run → your service → Security → turn on Identity-Aware Proxy (create OAuth consent screen if prompted).
-          3. Test at https://{{ custom_domain }}
+          1. Run `gcloud run domain-mappings describe --domain={{ custom_domain }} --region={{ region }}` for DNS records.
+          2. One-time IAP setup: Cloud Console -> Cloud Run -> {{ service_name }} -> Security -> Identity-Aware Proxy.
+          3. GPU auto-wakes at {{ wake_cron }} and sleeps at {{ sleep_cron }} ({{ schedule_timezone }}).
+          4. Manual override: ./wake.sh or ./sleep.sh
+          5. Verify hardening: ./harden.sh
+          6. Test: curl https://{{ custom_domain }}/models

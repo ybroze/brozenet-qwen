@@ -1,4 +1,6 @@
 *.pyc
 __pycache__/
 *.log
-ansible/vars.yml
+.DS_Store
+.env
+*.env
