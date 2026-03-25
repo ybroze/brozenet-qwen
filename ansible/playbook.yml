@@ -1,0 +1,68 @@
+---
+- name: Deploy Qwen3.5-122B Personal Assistant (IAP + Custom Domain)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars.yml
+  tasks:
+
+    - name: Enable required GCP APIs
+      ansible.builtin.command: gcloud services enable cloudbuild.googleapis.com run.googleapis.com secretmanager.googleapis.com iap.googleapis.com --project={{ project_id }}
+
+    - name: Create HF token secret
+      ansible.builtin.command: gcloud secrets create {{ hf_token_secret_name }} --replication-policy=automatic --project={{ project_id }}
+      ignore_errors: yes
+
+    - name: Add HF token (idempotent)
+      ansible.builtin.shell: echo -n "{{ lookup('env', 'HF_TOKEN') }}" | gcloud secrets versions add {{ hf_token_secret_name }} --data-file=- --project={{ project_id }}
+      environment:
+        HF_TOKEN: "{{ lookup('env', 'HF_TOKEN') }}"
+
+    - name: Grant Cloud Run SA secret access
+      ansible.builtin.command: >
+        gcloud secrets add-iam-policy-binding {{ hf_token_secret_name }}
+        --member="serviceAccount:{{ lookup('pipe', 'gcloud projects describe ' + project_id + ' --format=value(projectNumber)') }}-compute@developer.gserviceaccount.com"
+        --role=roles/secretmanager.secretAccessor
+        --project={{ project_id }}
+
+    - name: Build & push container
+      ansible.builtin.command: gcloud builds submit app/ --tag={{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service_name }}:latest --project={{ project_id }}
+
+    - name: Deploy Cloud Run service (122B FP8 + warm instance + no unauth)
+      ansible.builtin.command: >
+        gcloud beta run deploy {{ service_name }}
+        --image={{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service_name }}:latest
+        --region={{ region }}
+        --gpu={{ gpu_count }}
+        --gpu-type={{ gpu_type }}
+        --cpu=24 --memory=96Gi
+        --no-cpu-throttling
+        --concurrency=4
+        --timeout=1200
+        --cpu-boost
+        --min-instances={{ min_instances }}
+        --max-instances={{ max_instances }}
+        --set-env-vars=CMD_ARGS="--model {{ model }} --max-model-len {{ max_model_len }} --quantization {{ quantization }} {{ vllm_extra_args }}"
+        --set-secrets=HF_TOKEN={{ hf_token_secret_name }}:latest
+        --no-allow-unauthenticated
+        --project={{ project_id }}
+        --quiet
+
+    - name: Map custom domain qwen.broze.net
+      ansible.builtin.command: >
+        gcloud run domain-mappings create
+        --service={{ service_name }}
+        --domain={{ custom_domain }}
+        --region={{ region }}
+        --project={{ project_id }}
+      ignore_errors: yes
+
+    - name: Final status
+      ansible.builtin.debug:
+        msg: |
+          ✅ Deployed!
+          Next steps:
+          1. Run `gcloud run domain-mappings describe {{ service_name }} --region={{ region }}` to see required DNS A/AAAA records and add them to your DNS provider.
+          2. One-time IAP setup: Open Cloud Console → Cloud Run → your service → Security → turn on Identity-Aware Proxy (create OAuth consent screen if prompted).
+          3. Test at https://{{ custom_domain }}
