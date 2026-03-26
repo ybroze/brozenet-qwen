@@ -99,14 +99,15 @@ SA cannot pivot to other GCP resources.
 |---|---|---|
 | Inference engine | llama.cpp (single C++ binary) | No Python ML stack, no pickle deserialization, no plugin system |
 | Model format | GGUF (flat binary) | No code execution on load, unlike PyTorch/safetensors with auto_map |
-| Container image | Stock `ghcr.io/ggml-org/llama.cpp:server-cuda` | No custom build; pin tag in `ansible/vars.yml` for reproducibility |
+| Container dependencies | curl, python3 (proxy only) | Minimal surface; proxy is ~100 lines of stdlib-only Python |
+| Base image | `ghcr.io/ggml-org/llama.cpp:server-cuda` | Should be pinned to a specific tag in `app/Dockerfile` |
 
 ## Residual risks
 
 | Risk | Severity | Mitigation | Status |
 |---|---|---|---|
 | GCP account compromise | High | 2FA on Google account | Owner responsibility |
-| llama-server CVE | Medium | Pin image version, monitor releases | Pin tag in `llama_image` var |
+| llama-server CVE | Medium | Pin image version, monitor releases | Pin tag in `app/Dockerfile` |
 | Accidental IAM misconfiguration | Medium | `harden.sh` checks, two-layer redundancy | Active |
 | GGUF supply chain | Low | Use reputable uploaders (bartowski, unsloth, official) | Ongoing judgment call |
 | Model outputs harmful content | Medium | Raw model, no content filter | Acceptable for single-user personal assistant |

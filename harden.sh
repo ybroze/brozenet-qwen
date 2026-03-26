@@ -8,8 +8,7 @@ set -e
 VARS="$(cd "$(dirname "$0")" && pwd)/ansible/vars.yml"
 SERVICE="$(grep '^service_name:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
 REGION="$(grep '^region:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
-LLAMA_IMAGE="$(grep '^llama_image:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
-REPO="ghcr-mirror"
+REPO="$(grep '^ar_repo:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
 SECRET="hf-token"
 
 if [ -z "$1" ] || [[ "$1" != @* ]]; then
@@ -73,16 +72,18 @@ else
   pass "Found $BUDGET_COUNT billing budget(s)"
 fi
 
-# --- 5. Image pin ---
-echo "[5/5] Checking llama.cpp image pin..."
-if echo "$LLAMA_IMAGE" | grep -qE ':server-cuda$'; then
-  warn "llama_image in vars.yml uses unpinned :server-cuda tag. Pin to a specific version:"
+# --- 5. Docker image pin ---
+echo "[5/5] Checking Dockerfile image pin..."
+DOCKERFILE="$(cd "$(dirname "$0")" && pwd)/app/Dockerfile"
+if grep -q "server-cuda$" "$DOCKERFILE" 2>/dev/null; then
+  warn "Dockerfile uses unpinned :server-cuda tag. Pin to a specific version:"
   echo "        Check tags at: https://github.com/ggml-org/llama.cpp/pkgs/container/llama.cpp"
   echo "        Example: ghcr.io/ggml-org/llama.cpp:server-cuda-b5361"
-elif echo "$LLAMA_IMAGE" | grep -qE ':server-cuda-b[0-9]+'; then
-  pass "Image pinned to: $LLAMA_IMAGE"
+elif grep -q "server-cuda-b[0-9]" "$DOCKERFILE" 2>/dev/null; then
+  TAG=$(grep "^FROM" "$DOCKERFILE" | head -1 | awk '{print $2}')
+  pass "Dockerfile pinned to: $TAG"
 else
-  warn "Could not determine image pin status for: $LLAMA_IMAGE"
+  warn "Could not determine Dockerfile image pin status"
 fi
 
 # --- Summary ---

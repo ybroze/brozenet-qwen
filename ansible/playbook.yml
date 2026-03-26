@@ -27,6 +27,7 @@
       ansible.builtin.command: >
         gcloud services enable
         run.googleapis.com
+        cloudbuild.googleapis.com
         artifactregistry.googleapis.com
         secretmanager.googleapis.com
         cloudscheduler.googleapis.com
@@ -93,27 +94,25 @@
         --project={{ project_id }}
       changed_when: false
 
-    # --- Artifact Registry remote repo (pull-through cache for ghcr.io) ---
+    # --- Artifact Registry (idempotent) ---
 
-    - name: Check if ghcr-mirror repo exists
+    - name: Check if Artifact Registry repo exists
       ansible.builtin.command: >
-        gcloud artifacts repositories describe ghcr-mirror
+        gcloud artifacts repositories describe {{ ar_repo }}
         --location={{ region }}
         --project={{ project_id }}
         --format=value(name)
-      register: ghcr_mirror_exists
+      register: ar_repo_exists
       failed_when: false
       changed_when: false
 
-    - name: Create ghcr-mirror remote repo
+    - name: Create Artifact Registry repo
       ansible.builtin.command: >
-        gcloud artifacts repositories create ghcr-mirror
+        gcloud artifacts repositories create {{ ar_repo }}
         --repository-format=docker
         --location={{ region }}
         --project={{ project_id }}
-        --mode=remote-repository
-        --remote-docker-repo=https://ghcr.io
-      when: ghcr_mirror_exists.rc != 0
+      when: ar_repo_exists.rc != 0
 
     # --- GPU quota (idempotent) ---
 
@@ -152,37 +151,38 @@
       delay: 60
       changed_when: false
 
-    # --- Deploy Cloud Run ---
+    # --- Build & deploy ---
 
-    - name: Deploy Cloud Run service (stock llama.cpp + L4)
+    - name: Build & push container
       ansible.builtin.command:
-        argv:
-          - gcloud
-          - beta
-          - run
-          - deploy
-          - "{{ service_name }}"
-          - "--image={{ llama_image }}"
-          - "--region={{ region }}"
-          - "--gpu={{ gpu_count }}"
-          - "--gpu-type={{ gpu_type }}"
-          - "--cpu={{ cpu }}"
-          - "--memory={{ memory }}"
-          - "--no-cpu-throttling"
-          - "--concurrency={{ concurrency }}"
-          - "--timeout=1200"
-          - "--cpu-boost"
-          - "--min-instances={{ min_instances }}"
-          - "--max-instances={{ max_instances }}"
-          - "--set-env-vars=^::^MODEL_REPO={{ model_repo }}::MODEL_FILE={{ model_file }}::LLAMA_ARGS={{ llama_args }}"
-          - "--set-secrets=HF_TOKEN={{ hf_token_secret_name }}:latest"
-          - "--no-gpu-zonal-redundancy"
-          - "--no-allow-unauthenticated"
-          - "--service-account={{ compute_sa }}"
-          - "--command=sh"
-          - "--args=-c,mkdir -p /tmp/models && curl -L --fail --http1.1 -H \"Authorization: Bearer $HF_TOKEN\" -o /tmp/models/model.gguf https://huggingface.co/$MODEL_REPO/resolve/main/$MODEL_FILE && exec llama-server --host 0.0.0.0 --port 8080 --model /tmp/models/model.gguf $LLAMA_ARGS --api-key $HF_TOKEN"
-          - "--project={{ project_id }}"
-          - "--quiet"
+        cmd: >
+          gcloud builds submit app/
+          --tag={{ region }}-docker.pkg.dev/{{ project_id }}/{{ ar_repo }}/{{ service_name }}:latest
+          --project={{ project_id }}
+          --timeout=1200
+        chdir: "{{ playbook_dir }}/.."
+
+    - name: Deploy Cloud Run service (llama.cpp + L4)
+      ansible.builtin.command: >
+        gcloud beta run deploy {{ service_name }}
+        --image={{ region }}-docker.pkg.dev/{{ project_id }}/{{ ar_repo }}/{{ service_name }}:latest
+        --region={{ region }}
+        --gpu={{ gpu_count }}
+        --gpu-type={{ gpu_type }}
+        --cpu={{ cpu }} --memory={{ memory }}
+        --no-cpu-throttling
+        --concurrency={{ concurrency }}
+        --timeout=1200
+        --cpu-boost
+        --min-instances={{ min_instances }}
+        --max-instances={{ max_instances }}
+        --set-env-vars=^::^MODEL_REPO={{ model_repo }}::MODEL_FILE={{ model_file }}::LLAMA_ARGS={{ llama_args }}
+        --set-secrets=HF_TOKEN={{ hf_token_secret_name }}:latest
+        --no-gpu-zonal-redundancy
+        --no-allow-unauthenticated
+        --service-account={{ compute_sa }}
+        --project={{ project_id }}
+        --quiet
 
     # --- IAM bindings (idempotent — gcloud no-ops if binding exists) ---
 

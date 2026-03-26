@@ -23,7 +23,7 @@ gcloud auth login
 gcloud config set project broze-net
 ```
 
-The playbook enables required APIs automatically (Cloud Run, Secret Manager, Artifact Registry, Cloud Scheduler).
+The playbook enables required APIs automatically (Cloud Run, Cloud Build, Secret Manager, Artifact Registry, Cloud Scheduler).
 
 ### 2. GPU quota (manual step — requires human approval)
 
@@ -145,7 +145,7 @@ All non-secret config lives in `ansible/vars.yml`. See that file for the full li
 | `region` | `us-east4` | GCP region (must have L4 quota) |
 | `service_name` | `qwen-llm` | Cloud Run service name |
 | `model_repo` / `model_file` | Qwen3-30B-A3B Q4_K_M | HuggingFace GGUF to download |
-| `llama_image` | stock llama.cpp server-cuda | Base container image |
+| `ar_repo` | `qwen-repo` | Artifact Registry repository name |
 | `wake_cron` / `sleep_cron` | 7am / 9pm | Cloud Scheduler cron expressions |
 | `schedule_timezone` | `America/Chicago` | Timezone for wake/sleep schedule |
 
@@ -178,6 +178,14 @@ qwen.broze.net (Cloud Run, no unauthenticated access)
   |
   | port 8080
   v
+run_server.py (health proxy, ~50 lines Python)
+  |  /health         -> 200 OK (always, keeps container alive during model download)
+  |  /ready          -> checks llama-server /health (503 until loaded)
+  |  /chat/...       -> rewrites to /v1/chat/... and proxies to llama-server
+  |  /v1/chat/...    -> proxies directly to llama-server
+  |
+  | port 8081
+  v
 llama-server (single C++ binary, --api-key)
   |
   | Q4_K_M GGUF, n-gpu-layers=99
@@ -185,7 +193,7 @@ llama-server (single C++ binary, --api-key)
 Qwen3-30B-A3B on NVIDIA L4 (24 GB)
 ```
 
-The container runs the stock llama.cpp `server-cuda` image. At startup, an inline entrypoint downloads the GGUF from HuggingFace and launches `llama-server` on port 8080 with the API key from Secret Manager.
+The health proxy starts immediately and passes Cloud Run health checks while the model downloads in the background (~5 min). Once the download completes, it launches llama-server and proxies API requests to it.
 
 ### File layout
 
@@ -194,8 +202,10 @@ The container runs the stock llama.cpp `server-cuda` image. At startup, an inlin
 | `deploy.sh` | Loads secrets, runs Ansible playbook |
 | `harden.sh` | Post-deploy security verification (IAM, billing alerts, image pin) |
 | `wake.sh` / `sleep.sh` | Manual GPU wake/sleep (sets min-instances 1 or 0) |
-| `ansible/playbook.yml` | Full deployment: APIs, secrets, Artifact Registry, Cloud Run, domain, scheduler |
+| `ansible/playbook.yml` | Full deployment: APIs, secrets, Artifact Registry, Cloud Build, Cloud Run, domain, scheduler |
 | `ansible/vars.yml` | Non-secret config (model, GPU, scaling, schedule) |
+| `app/run_server.py` | Health proxy + model downloader + path rewriter (only Python in the container) |
+| `app/Dockerfile` | llama.cpp server-cuda base + curl + python3-minimal |
 | `secrets.example.yml` | Template for the secrets file |
 
 ---

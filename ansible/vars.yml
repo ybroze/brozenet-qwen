@@ -21,8 +21,8 @@ memory: "32Gi"
 model_repo: "bartowski/Qwen_Qwen3-30B-A3B-GGUF"
 model_file: "Qwen_Qwen3-30B-A3B-Q4_K_M.gguf"
 
-# llama.cpp stock image — no custom build needed
-llama_image: "us-east4-docker.pkg.dev/broze-net/ghcr-mirror/ggml-org/llama.cpp:server-cuda"
+# Artifact Registry repo for custom container image
+ar_repo: "qwen-repo"
 
 # llama-server flags (API key is injected separately from HF_TOKEN)
 llama_args: "--n-gpu-layers 99 --ctx-size 16384"
