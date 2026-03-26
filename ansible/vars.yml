@@ -1,16 +1,18 @@
 ---
 # Non-secret configuration for Qwen Cloud Run deployment.
-# Secrets (project_id, qwen_hf_token) live in ~/Secrets/ziggy-ansible-secrets.yml
-# and are passed via: --extra-vars @~/Secrets/ziggy-ansible-secrets.yml
+# Secrets (project_id, qwen_hf_token) are passed via:
+#   ./deploy.sh --extra-vars @/path/to/secrets.yml
+# See secrets.example.yml for the required keys.
 
-region: "us-central1"
-service_name: "qwen-personal-assistant"
+region: "us-east4"
+service_name: "qwen-llm"
 custom_domain: "qwen.broze.net"
 hf_token_secret_name: "hf-token"
 
 # GPU
 gpu_type: "nvidia-l4"
 gpu_count: 1
+gpu_quota_id: "NvidiaL4GpuAllocNoZonalRedundancyPerProjectRegion"
 cpu: 8
 memory: "32Gi"
 
@@ -18,6 +20,9 @@ memory: "32Gi"
 # Find files at: https://huggingface.co/<model_repo>/tree/main
 model_repo: "bartowski/Qwen_Qwen3-30B-A3B-GGUF"
 model_file: "Qwen_Qwen3-30B-A3B-Q4_K_M.gguf"
+
+# llama.cpp stock image — no custom build needed
+llama_image: "us-east4-docker.pkg.dev/broze-net/ghcr-mirror/ggml-org/llama.cpp:server-cuda"
 
 # llama-server flags (API key is injected separately from HF_TOKEN)
 llama_args: "--n-gpu-layers 99 --ctx-size 16384"

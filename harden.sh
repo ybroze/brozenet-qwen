@@ -2,13 +2,23 @@
 set -e
 
 # Post-deploy security hardening checks for qwen.broze.net
-# Run after ./deploy.sh and IAP setup to verify everything is locked down.
+# Run after ./deploy.sh to verify everything is locked down.
+# Usage: ./harden.sh @/path/to/secrets.yml
 
-SERVICE="qwen-personal-assistant"
-REGION="us-central1"
-PROJECT="$(grep '^project_id:' ~/Secrets/ziggy-ansible-secrets.yml | awk '{print $2}' | tr -d '"'"'"'"')"
-REPO="qwen-repo"
+VARS="$(cd "$(dirname "$0")" && pwd)/ansible/vars.yml"
+SERVICE="$(grep '^service_name:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
+REGION="$(grep '^region:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
+LLAMA_IMAGE="$(grep '^llama_image:' "$VARS" | awk '{print $2}' | tr -d '\"'"'")"
+REPO="ghcr-mirror"
 SECRET="hf-token"
+
+if [ -z "$1" ] || [[ "$1" != @* ]]; then
+  echo "Usage: $0 @/path/to/secrets.yml"
+  exit 1
+fi
+
+SECRETS_FILE="${1#@}"
+PROJECT="$(grep '^project_id:' "$SECRETS_FILE" | awk '{print $2}' | tr -d '\"'"'")"
 
 PASS=0
 FAIL=0
@@ -22,18 +32,8 @@ echo "=== Qwen Hardening Check ==="
 echo "Project: $PROJECT | Service: $SERVICE | Region: $REGION"
 echo ""
 
-# --- 1. IAP ---
-echo "[1/6] Checking IAP status..."
-IAP_ENABLED=$(gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT" \
-  --format="value(metadata.annotations['run.googleapis.com/iap-enabled'])" 2>/dev/null || echo "")
-if [ "$IAP_ENABLED" = "true" ]; then
-  pass "IAP is enabled on $SERVICE"
-else
-  fail "IAP is NOT enabled. Go to Cloud Console -> Cloud Run -> $SERVICE -> Security -> Identity-Aware Proxy"
-fi
-
-# --- 2. No public access (allUsers / allAuthenticatedUsers) ---
-echo "[2/6] Checking IAM policy for public access..."
+# --- 1. No public access (allUsers / allAuthenticatedUsers) ---
+echo "[1/5] Checking IAM policy for public access..."
 IAM_POLICY=$(gcloud run services get-iam-policy "$SERVICE" --region="$REGION" --project="$PROJECT" --format=json 2>/dev/null)
 if echo "$IAM_POLICY" | grep -q "allUsers\|allAuthenticatedUsers"; then
   fail "Public access found in IAM policy! Remove allUsers/allAuthenticatedUsers:"
@@ -42,8 +42,8 @@ else
   pass "No public access in IAM policy"
 fi
 
-# --- 3. Artifact Registry not public ---
-echo "[3/6] Checking Artifact Registry IAM..."
+# --- 2. Artifact Registry not public ---
+echo "[2/5] Checking Artifact Registry IAM..."
 AR_POLICY=$(gcloud artifacts repositories get-iam-policy "$REPO" --location="$REGION" --project="$PROJECT" --format=json 2>/dev/null)
 if echo "$AR_POLICY" | grep -q "allUsers\|allAuthenticatedUsers"; then
   fail "Artifact Registry repo '$REPO' has public access! Remove it:"
@@ -52,8 +52,8 @@ else
   pass "Artifact Registry repo is not public"
 fi
 
-# --- 4. Secret Manager IAM ---
-echo "[4/6] Checking Secret Manager access..."
+# --- 3. Secret Manager IAM ---
+echo "[3/5] Checking Secret Manager access..."
 SECRET_POLICY=$(gcloud secrets get-iam-policy "$SECRET" --project="$PROJECT" --format=json 2>/dev/null)
 SECRET_MEMBERS=$(echo "$SECRET_POLICY" | grep -c '"members"' 2>/dev/null || echo "0")
 if echo "$SECRET_POLICY" | grep -q "allUsers\|allAuthenticatedUsers"; then
@@ -62,8 +62,8 @@ else
   pass "HF token secret is not public ($SECRET_MEMBERS binding(s))"
 fi
 
-# --- 5. Billing alert ---
-echo "[5/6] Checking billing budgets..."
+# --- 4. Billing alert ---
+echo "[4/5] Checking billing budgets..."
 BUDGETS=$(gcloud billing budgets list --billing-account="$(gcloud billing projects describe "$PROJECT" --format='value(billingAccountName)' 2>/dev/null | sed 's|billingAccounts/||')" --format=json 2>/dev/null || echo "[]")
 if [ "$BUDGETS" = "[]" ] || [ -z "$BUDGETS" ]; then
   warn "No billing budgets found. Create one at: Cloud Console -> Billing -> Budgets & alerts"
@@ -73,18 +73,16 @@ else
   pass "Found $BUDGET_COUNT billing budget(s)"
 fi
 
-# --- 6. Docker image pin ---
-echo "[6/6] Checking Dockerfile image pin..."
-DOCKERFILE="$(cd "$(dirname "$0")" && pwd)/app/Dockerfile"
-if grep -q "server-cuda$" "$DOCKERFILE" 2>/dev/null; then
-  warn "Dockerfile uses unpinned :server-cuda tag. Pin to a specific version:"
+# --- 5. Image pin ---
+echo "[5/5] Checking llama.cpp image pin..."
+if echo "$LLAMA_IMAGE" | grep -qE ':server-cuda$'; then
+  warn "llama_image in vars.yml uses unpinned :server-cuda tag. Pin to a specific version:"
   echo "        Check tags at: https://github.com/ggml-org/llama.cpp/pkgs/container/llama.cpp"
-  echo "        Then update FROM line, e.g.: ghcr.io/ggml-org/llama.cpp:server-cuda-b5361"
-elif grep -q "server-cuda-b[0-9]" "$DOCKERFILE" 2>/dev/null; then
-  TAG=$(grep "^FROM" "$DOCKERFILE" | head -1 | awk '{print $2}')
-  pass "Dockerfile pinned to: $TAG"
+  echo "        Example: ghcr.io/ggml-org/llama.cpp:server-cuda-b5361"
+elif echo "$LLAMA_IMAGE" | grep -qE ':server-cuda-b[0-9]+'; then
+  pass "Image pinned to: $LLAMA_IMAGE"
 else
-  warn "Could not determine Dockerfile image pin status"
+  warn "Could not determine image pin status for: $LLAMA_IMAGE"
 fi
 
 # --- Summary ---
@@ -93,7 +91,7 @@ echo "=== Results ==="
 echo "  $PASS passed, $FAIL failed, $WARN warnings"
 if [ "$FAIL" -gt 0 ]; then
   echo ""
-  echo "Fix the FAILed checks above, then re-run: ./harden.sh"
+  echo "Fix the FAILed checks above, then re-run: $0 $1"
   exit 1
 elif [ "$WARN" -gt 0 ]; then
   echo ""

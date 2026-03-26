@@ -9,7 +9,7 @@ Self-hosted LLM inference endpoint at `https://qwen.broze.net`, powered by [llam
 - **Scale-to-zero** by default — no GPU charges when idle
 - **Cloud Scheduler** auto-wakes at 7 AM, sleeps at 9 PM (configurable). Manual override scripts included.
 - **OpenAI-compatible API** at the root path (no `/v1` prefix required) — drop-in for OpenClaw
-- **Defense in depth** — Cloud Run IAM + IAP + llama-server API key
+- **Defense in depth** — Cloud Run IAM + llama-server API key
 - **~$294/mo** on the default 7am-9pm schedule (L4 at $0.70/hr x 14 hrs/day)
 
 ---
@@ -23,15 +23,25 @@ gcloud auth login
 gcloud config set project broze-net
 ```
 
-The playbook enables required APIs automatically (Cloud Run, Cloud Build, Secret Manager, IAP, Artifact Registry).
+The playbook enables required APIs automatically (Cloud Run, Secret Manager, Artifact Registry, Cloud Scheduler).
 
-### 2. GPU quota
+### 2. GPU quota (manual step — requires human approval)
 
-Request `nvidia-l4` quota for `us-central1`:
+Cloud Run GPU instances require quota that **cannot be fully automated**. The playbook
+attempts a programmatic quota request via `gcloud beta quotas preferences create`, but
+GCP typically auto-denies these for GPU resources and sets `grantedValue: 0`. This is a
+Google-side policy: GPU quota requests are routed to a human reviewer regardless of how
+they are submitted.
 
-```
-Cloud Console -> IAM & Admin -> Quotas -> filter "Cloud Run GPU"
-```
+**Steps to request quota manually:**
+
+1. Go to the [Cloud Console Quotas page](https://console.cloud.google.com/iam-admin/quotas)
+   for your project.
+2. Filter for **"Total Nvidia L4 GPU allocation without zonal redundancy"**.
+3. Select the `us-east4` row and click **Edit Quotas**.
+4. Set the new limit to `1` and provide a justification (e.g., "Single L4 for LLM inference on Cloud Run").
+5. Submit and wait for the approval email (typically hours to a couple of days for a single GPU).
+6. Once approved, re-run `./deploy.sh` — the playbook will detect the granted quota and proceed.
 
 ### 3. Hugging Face token
 
@@ -39,10 +49,10 @@ Needed if the GGUF repo is gated. Create a read token at https://huggingface.co/
 
 ### 4. Secrets file
 
-Add to `~/Secrets/ziggy-ansible-secrets.yml`:
+Copy `secrets.example.yml` and fill in your values:
 
 ```yaml
-project_id: "broze-net"
+project_id: "your-gcp-project-id"
 qwen_hf_token: "hf_your_token_here"
 ```
 
@@ -50,7 +60,7 @@ qwen_hf_token: "hf_your_token_here"
 
 ```bash
 pip install ansible   # if not installed
-./deploy.sh
+./deploy.sh --extra-vars @/path/to/secrets.yml
 ```
 
 First deploy: ~10 min (container build). First cold start after that: ~5-10 min (GGUF download + model load into GPU).
@@ -58,26 +68,19 @@ First deploy: ~10 min (container build). First cold start after that: ~5-10 min 
 ### 6. DNS records
 
 ```bash
-gcloud run domain-mappings describe --domain=qwen.broze.net --region=us-central1
+gcloud beta run domain-mappings describe --domain=qwen.broze.net --region=us-east4
 ```
 
 Add the A/AAAA records to your DNS provider.
 
-### 7. Enable IAP (one-time)
-
-1. Cloud Console -> Cloud Run -> qwen-personal-assistant -> Security
-2. Turn on Identity-Aware Proxy
-3. Create OAuth consent screen if prompted (internal, single-user)
-4. Add your Google account
-
-### 8. Test
+### 7. Test
 
 The GPU auto-wakes at 7:00 AM and sleeps at 9:00 PM (America/Chicago). To test immediately:
 
 ```bash
-./wake.sh 1h
+./wake.sh @/path/to/secrets.yml 1h
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-     https://qwen.broze.net/chat/completions \
+     https://qwen.broze.net/v1/chat/completions \
      -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
@@ -91,14 +94,14 @@ The GPU costs ~$0.70/hr. Pay nothing when idle.
 - `0 7 * * *` — wake at 7:00 AM (sets min-instances=1)
 - `0 21 * * *` — sleep at 9:00 PM (sets min-instances=0)
 
-Timezone and schedule are configurable in `vars.yml`.
+Timezone and schedule are configurable in `ansible/vars.yml`.
 
-**Manual override:** The local scripts still work for ad-hoc use outside the schedule:
+**Manual override:**
 
 ```bash
-./wake.sh          # wake now (indefinitely)
-./wake.sh 2h       # wake for 2 hours, then auto-sleep
-./sleep.sh         # sleep now
+./wake.sh @/path/to/secrets.yml          # wake now (indefinitely)
+./wake.sh @/path/to/secrets.yml 2h       # wake for 2 hours, then auto-sleep
+./sleep.sh @/path/to/secrets.yml         # sleep now
 ```
 
 Note: a manual wake will be overridden by the next scheduled sleep, and vice versa. This is usually what you want.
@@ -114,7 +117,7 @@ Note: a manual wake will be overridden by the next scheduled sleep, and vice ver
 
 ## OpenClaw Integration
 
-Configure OpenClaw with `qwen.broze.net` as an OpenAI-compatible provider. The proxy accepts requests with or without the `/v1` prefix:
+Configure OpenClaw with `qwen.broze.net` as an OpenAI-compatible provider. The service accepts requests with or without the `/v1` prefix:
 
 ```
 https://qwen.broze.net/chat/completions      -> works
@@ -122,51 +125,35 @@ https://qwen.broze.net/v1/chat/completions   -> also works
 https://qwen.broze.net/models                -> also works
 ```
 
-No `/v1` suffix needed in the base URL. The proxy rewrites paths transparently for llama-server.
-
 ---
 
 ## Subsequent Deploys
 
 ```bash
-./deploy.sh        # redeploy (idempotent)
-./deploy.sh -vvv   # verbose mode
+./deploy.sh --extra-vars @/path/to/secrets.yml        # redeploy (idempotent)
+./deploy.sh --extra-vars @/path/to/secrets.yml -vvv   # verbose mode
 ```
 
 ---
 
 ## Configuration
 
-### `ansible/vars.yml` (committed, non-secret)
+All non-secret config lives in `ansible/vars.yml`. See that file for the full list with comments. Key settings:
 
 | Variable | Default | Description |
 |---|---|---|
-| `region` | `us-central1` | GCP region (must have L4 quota) |
-| `service_name` | `qwen-personal-assistant` | Cloud Run service name |
-| `custom_domain` | `qwen.broze.net` | Custom domain |
-| `gpu_type` | `nvidia-l4` | GPU type |
-| `cpu` | `8` | vCPUs |
-| `memory` | `32Gi` | Container memory |
-| `model_repo` | `bartowski/Qwen_Qwen3-30B-A3B-GGUF` | HuggingFace GGUF repo |
-| `model_file` | `Qwen_Qwen3-30B-A3B-Q4_K_M.gguf` | GGUF filename |
-| `llama_args` | `--n-gpu-layers 99 --ctx-size 16384` | Extra llama-server flags |
-| `min_instances` | `0` | Min instances (0 = scale to zero) |
-| `max_instances` | `1` | Max instances |
-| `concurrency` | `4` | Max concurrent requests per instance |
-| `wake_cron` | `0 7 * * *` | Cloud Scheduler wake cron expression |
-| `sleep_cron` | `0 21 * * *` | Cloud Scheduler sleep cron expression |
+| `region` | `us-east4` | GCP region (must have L4 quota) |
+| `service_name` | `qwen-llm` | Cloud Run service name |
+| `model_repo` / `model_file` | Qwen3-30B-A3B Q4_K_M | HuggingFace GGUF to download |
+| `llama_image` | stock llama.cpp server-cuda | Base container image |
+| `wake_cron` / `sleep_cron` | 7am / 9pm | Cloud Scheduler cron expressions |
 | `schedule_timezone` | `America/Chicago` | Timezone for wake/sleep schedule |
 
-### `~/Secrets/ziggy-ansible-secrets.yml` (never committed)
-
-| Variable | Description |
-|---|---|
-| `project_id` | GCP project ID |
-| `qwen_hf_token` | HuggingFace token (also used as llama-server API key) |
+Secrets (`project_id`, `qwen_hf_token`) are passed at deploy time via `--extra-vars @/path/to/secrets.yml`. See `secrets.example.yml` for the template.
 
 ### Switching models
 
-Change `model_repo` and `model_file` in `vars.yml`, then `./deploy.sh`. Some options:
+Change `model_repo` and `model_file` in `ansible/vars.yml`, then redeploy. Some options:
 
 | Model | GGUF file | VRAM (Q4_K_M) | Quality |
 |---|---|---|---|
@@ -183,21 +170,13 @@ Verify exact filenames on HuggingFace before deploying. All fit on L4 (24 GB) at
 ## Architecture
 
 ```
-OpenClaw Gateway (ziggy.broze.net)
+OpenClaw Gateway
   |
   | HTTPS
   v
-qwen.broze.net (Cloud Run, IAP-protected)
+qwen.broze.net (Cloud Run, no unauthenticated access)
   |
   | port 8080
-  v
-run_server.py (health proxy, ~50 lines Python)
-  |  /health         -> 200 OK (always, keeps container alive during model download)
-  |  /ready          -> checks llama-server /health (503 until loaded)
-  |  /chat/...       -> rewrites to /v1/chat/... and proxies to llama-server
-  |  /v1/chat/...    -> proxies directly to llama-server
-  |
-  | port 8081
   v
 llama-server (single C++ binary, --api-key)
   |
@@ -206,74 +185,33 @@ llama-server (single C++ binary, --api-key)
 Qwen3-30B-A3B on NVIDIA L4 (24 GB)
 ```
 
+The container runs the stock llama.cpp `server-cuda` image. At startup, an inline entrypoint downloads the GGUF from HuggingFace and launches `llama-server` on port 8080 with the API key from Secret Manager.
+
 ### File layout
 
 | File | Purpose |
 |---|---|
 | `deploy.sh` | Loads secrets, runs Ansible playbook |
-| `harden.sh` | Post-deploy security verification (IAP, IAM, billing alerts, image pin) |
-| `wake.sh` | Sets min-instances=1, waits for ready, optional auto-sleep timer |
-| `sleep.sh` | Sets min-instances=0, GPU scales to zero |
-| `ansible/playbook.yml` | Full deployment: APIs, secrets, Artifact Registry, Cloud Build, Cloud Run, domain |
-| `ansible/vars.yml` | Non-secret config (model, GPU, scaling) |
-| `app/run_server.py` | Health proxy + model downloader + path rewriter (only Python in the container) |
-| `app/Dockerfile` | llama.cpp server-cuda base + curl + python3-minimal |
+| `harden.sh` | Post-deploy security verification (IAM, billing alerts, image pin) |
+| `wake.sh` / `sleep.sh` | Manual GPU wake/sleep (sets min-instances 1 or 0) |
+| `ansible/playbook.yml` | Full deployment: APIs, secrets, Artifact Registry, Cloud Run, domain, scheduler |
+| `ansible/vars.yml` | Non-secret config (model, GPU, scaling, schedule) |
+| `secrets.example.yml` | Template for the secrets file |
 
 ---
 
-## Security Profile
+## Security & Hardening
 
-### Attack surface comparison (old vs new)
+See [SECURITY.md](SECURITY.md) for the full threat model and design decisions.
 
-| | vLLM (old) | llama.cpp (current) |
-|---|---|---|
-| Inference engine | Python + CUDA (60+ pip packages) | Single C++ binary |
-| Web framework | FastAPI + uvicorn | Built-in HTTP server |
-| Dependencies in container | PyTorch, transformers, protobuf, etc. | curl, python3-minimal (proxy only) |
-| Known critical CVEs | 5+ (RCE via pickle, SSRF, auto_map) | 2 (buffer overflow, OOB write) |
-| Deserialization risk | pickle.loads on network data | None (GGUF is a flat binary format) |
-| Plugin/extension system | Yes (entry points) | No |
-| Docker image size | Multi-GB | ~hundreds of MB |
+Run `./harden.sh @/path/to/secrets.yml` after deploy to verify:
 
-### Authentication layers
+1. No `allUsers` / `allAuthenticatedUsers` in Cloud Run IAM
+2. Artifact Registry repo is not publicly readable
+3. Secret Manager secret has no public access
+4. A billing budget/alert exists on the project
+5. llama.cpp image is pinned to a specific version tag
 
-| Layer | What it does |
-|---|---|
-| **Cloud Run IAM** (`--no-allow-unauthenticated`) | Rejects requests without valid Google identity token |
-| **Identity-Aware Proxy (IAP)** | Browser-based Google login, JWT validation |
-| **llama-server API key** (`--api-key`) | Requires Bearer token on every API call |
+## Logging
 
-### Secrets management
-
-| Secret | Storage | Notes |
-|---|---|---|
-| HF token | GCP Secret Manager, mounted at runtime | Also used as llama-server API key. `no_log: true` in playbook. |
-| Project ID | `~/Secrets/ziggy-ansible-secrets.yml` | Never committed |
-
-### Residual risks
-
-| Risk | Severity | Mitigation |
-|---|---|---|
-| GCP account compromise | High | 2FA on Google account |
-| llama-server CVE (OOB write, buffer overflow) | Medium | Pin version, monitor releases |
-| GGUF supply chain (malicious model file) | Low | Use reputable GGUF uploaders (bartowski, unsloth, official) |
-| Model outputs harmful content | Medium | Raw model, no content filter. Don't expose to untrusted users. |
-
-### Hardening script
-
-Run after deploy and IAP setup to verify everything is locked down:
-
-```bash
-./harden.sh
-```
-
-Checks all six items automatically:
-
-1. IAP is enabled on the Cloud Run service
-2. No `allUsers` / `allAuthenticatedUsers` in Cloud Run IAM
-3. Artifact Registry repo is not publicly readable
-4. Secret Manager secret has no public access
-5. A billing budget/alert exists on the project
-6. Dockerfile is pinned to a specific llama.cpp version tag
-
-Reports PASS/FAIL/WARN for each. Non-zero exit on any failure.
+See [LOGGING.md](LOGGING.md) for log sources, viewing commands, and retention policy.
