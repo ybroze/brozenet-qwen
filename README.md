@@ -4,13 +4,15 @@ Ollama + L4 GPU on Cloud Run. Scale-to-zero. ~$294/mo on a 7am–9pm schedule.
 
 ## Prerequisites
 
+- `pip install ansible`
 - GPU quota: request 1x L4 in `us-east4` at [Cloud Console Quotas](https://console.cloud.google.com/iam-admin/quotas) (filter "Total Nvidia L4 GPU allocation without zonal redundancy")
 
 ## Deploy
 
 ```bash
-./deploy.sh your-gcp-project-id            # default: qwen3:30b-a3b
-./deploy.sh your-gcp-project-id qwen3:32b  # or any Ollama model
+./deploy.sh broze-net                              # default: qwen3:30b-a3b
+./deploy.sh broze-net -e ollama_model=qwen3:32b    # different model
+./deploy.sh broze-net -vvv                          # verbose
 ```
 
 ## Test
