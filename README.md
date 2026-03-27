@@ -15,10 +15,18 @@ Ollama + L4 GPU on Cloud Run. Scale-to-zero. ~$294/mo on a 7am–9pm schedule.
 ./deploy.sh broze-net -vvv                          # verbose
 ```
 
+## API Key
+
+The first deploy generates an API key in Secret Manager. Retrieve it with:
+
+```bash
+gcloud secrets versions access latest --secret=qwen-api-key --project=broze-net
+```
+
 ## Test
 
 ```bash
-curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+curl -H "Authorization: Bearer <api-key>" \
   https://qwen.broze.net/v1/chat/completions \
   -d '{"model":"qwen3:30b-a3b","messages":[{"role":"user","content":"Hello"}]}'
 ```

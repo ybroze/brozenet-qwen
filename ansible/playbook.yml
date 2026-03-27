@@ -21,6 +21,7 @@
         gcloud services enable
         run.googleapis.com cloudbuild.googleapis.com
         artifactregistry.googleapis.com cloudscheduler.googleapis.com
+        secretmanager.googleapis.com
         --project={{ project_id }} --quiet
       changed_when: false
 
@@ -51,6 +52,27 @@
         --display-name="Qwen Cloud Run" --project={{ project_id }}
       when: sa_check.rc != 0
 
+    - name: Check API key secret
+      command: >
+        gcloud secrets describe qwen-api-key --project={{ project_id }}
+      register: secret_check
+      failed_when: false
+      changed_when: false
+
+    - name: Generate and store API key
+      shell: >
+        python3 -c "import secrets; print(secrets.token_urlsafe(48), end='')"
+        | gcloud secrets create qwen-api-key --data-file=- --project={{ project_id }}
+      when: secret_check.rc != 0
+
+    - name: Grant SA access to API key
+      command: >
+        gcloud secrets add-iam-policy-binding qwen-api-key
+        --member=serviceAccount:{{ sa }}
+        --role=roles/secretmanager.secretAccessor
+        --project={{ project_id }} --quiet
+      changed_when: false
+
     - name: Build container
       command:
         cmd: >
@@ -68,7 +90,8 @@
         --concurrency=4 --timeout=1200
         --min-instances=0 --max-instances=1
         --set-env-vars=OLLAMA_MODEL={{ model }}
-        --no-gpu-zonal-redundancy --no-allow-unauthenticated
+        --set-secrets=API_KEY=qwen-api-key:latest
+        --no-gpu-zonal-redundancy --allow-unauthenticated
         --service-account={{ sa }}
         --project={{ project_id }} --quiet
 
@@ -78,13 +101,17 @@
       register: pn
       changed_when: false
 
-    - name: Grant scheduler IAM
+    - name: Grant IAM roles
       command: "{{ item }}"
       loop:
         - >-
+          gcloud projects add-iam-policy-binding {{ project_id }}
+          --member=serviceAccount:{{ sa }}
+          --role=roles/run.developer --quiet
+        - >-
           gcloud run services add-iam-policy-binding {{ service }}
           --region={{ region }} --member=serviceAccount:{{ sa }}
-          --role=roles/run.developer --project={{ project_id }} --quiet
+          --role=roles/run.invoker --project={{ project_id }} --quiet
         - >-
           gcloud iam service-accounts add-iam-policy-binding {{ sa }}
           --member=serviceAccount:service-{{ pn.stdout }}@gcp-sa-cloudscheduler.iam.gserviceaccount.com
@@ -108,8 +135,8 @@
         --location={{ region }}
         --schedule="{{ item.item.cron }}"
         --time-zone=America/Chicago
-        --uri=https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service }}:patch?updateMask=template.scaling.minInstanceCount
-        --http-method=POST
+        --uri=https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service }}?updateMask=template.scaling.minInstanceCount
+        --http-method=PATCH
         {{ '--update-headers' if item.rc == 0 else '--headers' }}=Content-Type=application/json
         --message-body='{"template":{"scaling":{"minInstanceCount":{{ item.item.min }}}}}'
         --oauth-service-account-email={{ sa }}
@@ -117,3 +144,18 @@
       loop: "{{ jobs.results }}"
       loop_control:
         label: "{{ item.item.name }}"
+
+    - name: Check domain mapping
+      command: >
+        gcloud beta run domain-mappings describe
+        --domain=qwen.broze.net --region={{ region }} --project={{ project_id }}
+      register: domain
+      failed_when: false
+      changed_when: false
+
+    - name: Create domain mapping
+      command: >
+        gcloud beta run domain-mappings create
+        --service={{ service }} --domain=qwen.broze.net
+        --region={{ region }} --project={{ project_id }}
+      when: domain.rc != 0
