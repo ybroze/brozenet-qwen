@@ -4,6 +4,3 @@ __pycache__/
 .DS_Store
 .env
 *.env
-secrets.yml
-secrets*.yml
-!secrets.example.yml
