@@ -10,9 +10,8 @@ Ollama + L4 GPU on Cloud Run. Scale-to-zero. ~$294/mo on a 7am–9pm schedule.
 ## Deploy
 
 ```bash
-./deploy.sh broze-net                              # default: qwen3:30b-a3b
-./deploy.sh broze-net -e ollama_model=qwen3:32b    # different model
-./deploy.sh broze-net -vvv                          # verbose
+./deploy.sh        # builds via Cloud Build, deploys to Cloud Run
+./deploy.sh -vvv   # verbose
 ```
 
 ## API Key
@@ -37,6 +36,6 @@ Automatic via Cloud Scheduler: wakes at 7 AM, sleeps at 9 PM (America/Chicago).
 
 Manual override:
 ```bash
-gcloud run services update qwen-llm --min-instances=1 --region=us-east4  # wake
-gcloud run services update qwen-llm --min-instances=0 --region=us-east4  # sleep
+gcloud run services update qwen-llm --min-instances=1 --region=us-east4 --project=broze-net  # wake
+gcloud run services update qwen-llm --min-instances=0 --region=us-east4 --project=broze-net  # sleep
 ```

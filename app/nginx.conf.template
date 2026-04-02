@@ -6,6 +6,10 @@ http {
     server {
         listen ${PORT} default_server;
 
+        location /health {
+            return 200 'ok';
+        }
+
         location / {
             if ($http_authorization != "Bearer ${API_KEY}") {
                 return 401;

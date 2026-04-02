@@ -6,9 +6,8 @@
   vars:
     region: us-east4
     service: qwen-llm
-    model: "{{ ollama_model | default('qwen3:30b-a3b') }}"
+    image: "{{ region }}-docker.pkg.dev/{{ project_id }}/cloud-run-source-deploy/{{ service }}"
     sa: "qwen-runner@{{ project_id }}.iam.gserviceaccount.com"
-    image: "{{ region }}-docker.pkg.dev/{{ project_id }}/qwen-repo/{{ service }}"
   tasks:
 
     - name: Verify project_id is set
@@ -20,24 +19,10 @@
       command: >
         gcloud services enable
         run.googleapis.com cloudbuild.googleapis.com
-        artifactregistry.googleapis.com cloudscheduler.googleapis.com
+        cloudscheduler.googleapis.com
         secretmanager.googleapis.com
         --project={{ project_id }} --quiet
       changed_when: false
-
-    - name: Check Artifact Registry
-      command: >
-        gcloud artifacts repositories describe qwen-repo
-        --location={{ region }} --project={{ project_id }}
-      register: ar
-      failed_when: false
-      changed_when: false
-
-    - name: Create Artifact Registry
-      command: >
-        gcloud artifacts repositories create qwen-repo
-        --repository-format=docker --location={{ region }} --project={{ project_id }}
-      when: ar.rc != 0
 
     - name: Check service account
       command: >
@@ -73,33 +58,37 @@
         --project={{ project_id }} --quiet
       changed_when: false
 
-    - name: Build container
-      command:
-        cmd: >
-          gcloud builds submit app/
-          --tag={{ image }}:latest --project={{ project_id }} --timeout=1200
-        chdir: "{{ playbook_dir }}/.."
-
-    - name: Deploy Cloud Run
-      command: >
-        gcloud beta run deploy {{ service }}
-        --image={{ image }}:latest --region={{ region }}
-        --gpu=1 --gpu-type=nvidia-l4
-        --cpu=8 --memory=32Gi
-        --no-cpu-throttling --cpu-boost
-        --concurrency=4 --timeout=1200
-        --min-instances=0 --max-instances=1
-        --set-env-vars=OLLAMA_MODEL={{ model }}
-        --set-secrets=API_KEY=qwen-api-key:latest
-        --no-gpu-zonal-redundancy --allow-unauthenticated
-        --service-account={{ sa }}
-        --project={{ project_id }} --quiet
-
     - name: Get project number
       command: >
         gcloud projects describe {{ project_id }} --format=value(projectNumber)
       register: pn
       changed_when: false
+
+    - name: Build container
+      command:
+        cmd: >
+          gcloud builds submit app/
+          --tag={{ image }}:latest
+          --region={{ region }}
+          --timeout=1800
+          --project={{ project_id }} --quiet
+        chdir: "{{ playbook_dir }}/.."
+
+    - name: Deploy Cloud Run
+      command: >
+        gcloud run deploy {{ service }}
+        --image={{ image }}:latest --region={{ region }}
+        --command="" --args=""
+        --gpu=1 --gpu-type=nvidia-l4
+        --cpu=8 --memory=32Gi
+        --no-cpu-throttling --cpu-boost
+        --concurrency=4 --timeout=1200
+        --min-instances=0 --max-instances=1
+        --set-env-vars=OLLAMA_NUM_PARALLEL=4
+        --set-secrets=API_KEY=qwen-api-key:latest
+        --no-gpu-zonal-redundancy --allow-unauthenticated
+        --service-account={{ sa }}
+        --project={{ project_id }} --quiet
 
     - name: Grant IAM roles
       command: "{{ item }}"
