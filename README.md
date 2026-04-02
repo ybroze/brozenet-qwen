@@ -26,8 +26,8 @@ gcloud secrets versions access latest --secret=qwen-api-key --project=broze-net
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  https://qwen.broze.net/v1/chat/completions \
-  -d '{"model":"qwen3:30b-a3b","messages":[{"role":"user","content":"Hello"}]}'
+  https://qwen.broze.net/api/chat \
+  -d '{"model":"qwen3:30b-a3b","messages":[{"role":"user","content":"Hello"}],"stream":false}'
 ```
 
 ## Wake / Sleep
