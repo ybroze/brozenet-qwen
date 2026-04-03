@@ -145,6 +145,6 @@ if __name__ == "__main__":
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     port = int(os.environ.get("PORT", 5000))
-    url = f"http://localhost:{port}"
+    url = f"http://127.0.0.1:{port}"
     print(f"Open \033]8;;{url}\033\\{url}\033]8;;\033\\ in your browser. Ctrl-C to quit.")
-    app.run(port=port)
+    app.run(host="127.0.0.1", port=port)
