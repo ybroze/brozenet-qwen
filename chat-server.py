@@ -25,9 +25,15 @@ HTML = """\
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
   #messages { flex: 1; overflow-y: auto; padding: 1rem; }
-  .msg { max-width: 48rem; margin: 0 auto 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; white-space: pre-wrap; word-wrap: break-word; }
-  .user { background: #2a4a7f; margin-right: 0; margin-left: auto; }
+  .msg { max-width: 48rem; margin: 0 auto 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; word-wrap: break-word; }
+  .user { background: #2a4a7f; margin-right: 0; margin-left: auto; white-space: pre-wrap; }
   .assistant { background: #2a2a2a; margin-left: 0; margin-right: auto; }
+  .assistant p { margin: 0.5em 0; }
+  .assistant p:first-child { margin-top: 0; }
+  .assistant p:last-child { margin-bottom: 0; }
+  .assistant pre { background: #111; padding: 0.5rem; border-radius: 0.25rem; overflow-x: auto; margin: 0.5em 0; }
+  .assistant code { font-size: 0.9em; }
+  .assistant :not(pre) > code { background: #111; padding: 0.1em 0.3em; border-radius: 0.2rem; }
   #input-bar { display: flex; padding: 0.75rem; background: #111; gap: 0.5rem; }
   #input { flex: 1; padding: 0.75rem; border: 1px solid #333; border-radius: 0.5rem; background: #222; color: #e0e0e0; font-size: 1rem; font-family: inherit; resize: none; }
   #input:focus { outline: none; border-color: #4a7abf; }
@@ -42,6 +48,8 @@ HTML = """\
   <textarea id="input" rows="1" placeholder="Say something..." autofocus></textarea>
   <button id="send" onclick="send()">Send</button>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/marked@17.0.5/marked.min.js" integrity="sha384-tkjnnf9Tzhv5ZFrDroGvUExw9C3EVFo0RFRkzKR8ZX4b5Psoec4yb1PlD8Jh4j4H" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
 <script>
 const messages = [];
 const messagesEl = document.getElementById('messages');
@@ -52,10 +60,15 @@ inputEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
 });
 
+function renderMd(text) {
+  return DOMPurify.sanitize(marked.parse(text));
+}
+
 function addMsg(role, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.textContent = text;
+  if (role === 'assistant' && text) div.innerHTML = renderMd(text);
+  else div.textContent = text;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return div;
@@ -89,7 +102,7 @@ async function send() {
         if (!line) continue;
         try {
           const token = JSON.parse(line).token;
-          if (token) { full += token; div.textContent = full; }
+          if (token) { full += token; div.innerHTML = renderMd(full); }
         } catch {}
       }
       messagesEl.scrollTop = messagesEl.scrollHeight;
