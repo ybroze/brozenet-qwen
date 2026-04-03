@@ -24,7 +24,6 @@
       command: >
         gcloud services enable
         run.googleapis.com cloudbuild.googleapis.com
-        cloudscheduler.googleapis.com
         secretmanager.googleapis.com
         --project={{ project_id }} --quiet
       changed_when: false
@@ -61,12 +60,6 @@
         --member=serviceAccount:{{ sa }}
         --role=roles/secretmanager.secretAccessor
         --project={{ project_id }} --quiet
-      changed_when: false
-
-    - name: Get project number
-      command: >
-        gcloud projects describe {{ project_id }} --format=value(projectNumber)
-      register: pn
       changed_when: false
 
     - name: Build container
@@ -106,53 +99,7 @@
           gcloud run services add-iam-policy-binding {{ service }}
           --region={{ region }} --member=serviceAccount:{{ sa }}
           --role=roles/run.invoker --project={{ project_id }} --quiet
-        - >-
-          gcloud iam service-accounts add-iam-policy-binding {{ sa }}
-          --member=serviceAccount:service-{{ pn.stdout }}@gcp-sa-cloudscheduler.iam.gserviceaccount.com
-          --role=roles/iam.serviceAccountUser --project={{ project_id }} --quiet
       changed_when: false
-
-    - name: Check scheduler jobs
-      command: >
-        gcloud scheduler jobs describe {{ service }}-{{ item.name }}
-        --location={{ region }} --project={{ project_id }}
-      loop:
-        - { name: wake,  min: 1, cron: "0 7 * * *" }
-        - { name: sleep, min: 0, cron: "0 21 * * *" }
-      register: jobs
-      failed_when: false
-      changed_when: false
-
-    - name: Get auth token for scheduler API
-      command: gcloud auth print-access-token
-      register: gcp_token
-      changed_when: false
-      no_log: true
-
-    - name: Configure scheduler jobs
-      uri:
-        url: >-
-          https://cloudscheduler.googleapis.com/v1/projects/{{ project_id }}/locations/{{ region }}/jobs{{
-          '' if item.rc != 0 else '/' + service + '-' + item.item.name }}
-        method: "{{ 'POST' if item.rc != 0 else 'PATCH' }}"
-        headers:
-          Authorization: "Bearer {{ gcp_token.stdout }}"
-        body_format: json
-        body:
-          name: "projects/{{ project_id }}/locations/{{ region }}/jobs/{{ service }}-{{ item.item.name }}"
-          schedule: "{{ item.item.cron }}"
-          timeZone: America/Chicago
-          httpTarget:
-            uri: "https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service }}?updateMask=template.scaling.minInstanceCount"
-            httpMethod: PATCH
-            headers:
-              Content-Type: application/json
-            body: "{{ {'template': {'scaling': {'minInstanceCount': item.item.min}}} | to_json | b64encode }}"
-            oauthToken:
-              serviceAccountEmail: "{{ sa }}"
-      loop: "{{ jobs.results }}"
-      loop_control:
-        label: "{{ item.item.name }}"
 
     - name: Check domain mapping
       command: >

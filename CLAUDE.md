@@ -11,7 +11,7 @@ Ollama on Cloud Run with an L4 GPU. Deploy with `./deploy.sh -e project_id=... -
 - `app/Dockerfile` — Ollama + nginx + model baked in at build time
 - `app/entrypoint.sh` — starts nginx (foreground) and Ollama (background)
 - `app/nginx.conf.template` — bearer token auth, reverse proxy to Ollama on localhost:11434
-- `ansible/playbook.yml` — provisions everything: APIs, SA, Secret Manager, Cloud Build, Cloud Run, scheduler, domain
+- `ansible/playbook.yml` — provisions everything: APIs, SA, Secret Manager, Cloud Build, Cloud Run, domain
 - `deploy.sh` — one-line wrapper around the playbook
 
 ## Auth
@@ -31,8 +31,6 @@ Ollama on Cloud Run with an L4 GPU. Deploy with `./deploy.sh -e project_id=... -
 ## Principles
 
 - Keep the repo small and each file targeted. Don't add files without a reason.
-- Wake/sleep is two Cloud Scheduler cron jobs, not scripts.
-- Manual wake/sleep is a one-liner `gcloud` command, not a script.
 - All instance-specific values (`project_id`, `domain`) are CLI arguments, not files.
 - DNS is managed externally (not by this repo).
 - GPU quota must be requested manually in Cloud Console. Don't try to automate it.

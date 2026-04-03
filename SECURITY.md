@@ -48,6 +48,5 @@ gcloud run services update qwen-llm --region=us-east4  # picks up latest secret 
 
 ## Scale-to-zero as defense
 
-When the service is sleeping (9 PM -- 7 AM CT), there are zero running
-instances. No container means no attack surface beyond GCP's own control
-plane.
+When idle, Cloud Run scales to zero instances. No container means no
+attack surface beyond GCP's own control plane.

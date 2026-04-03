@@ -2,7 +2,7 @@
 
 *Do you want Qwen? Because this is how you get Qwen.*
 
-Ollama serving an LLM on a Cloud Run GPU instance. Scale-to-zero with a wake/sleep schedule.
+Ollama serving an LLM on a Cloud Run GPU instance. Scales to zero when idle.
 
 ## Configuration
 
@@ -73,20 +73,6 @@ curl -H "Authorization: Bearer $QWEN_API_KEY" \
 ```
 
 Checks health endpoint, auth rejection, model listing, and a round-trip chat completion.
-
-## Wake / Sleep
-
-Automatic via Cloud Scheduler: wakes at 7 AM, sleeps at 9 PM (America/Chicago).
-
-Manual override:
-
-```bash
-# wake
-gcloud run services update qwen-llm --min-instances=1 --region=us-east4 --project=my-gcp-project
-
-# sleep
-gcloud run services update qwen-llm --min-instances=0 --region=us-east4 --project=my-gcp-project
-```
 
 ## Novice's Guide
 
@@ -170,5 +156,5 @@ Then open [http://localhost:5678](http://localhost:5678) in your browser.
 - `app/Dockerfile` — Ollama + nginx, model baked in at build time
 - `app/entrypoint.sh` — starts nginx (foreground) and Ollama (background)
 - `app/nginx.conf.template` — bearer token auth, reverse proxy to Ollama
-- `ansible/playbook.yml` — provisions APIs, SA, secrets, Cloud Build, Cloud Run, scheduler, domain
+- `ansible/playbook.yml` — provisions APIs, SA, secrets, Cloud Build, Cloud Run, domain
 - `deploy.sh` — one-line wrapper around the Ansible playbook
