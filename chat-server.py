@@ -48,7 +48,7 @@ HTML = """\
   <textarea id="input" rows="1" placeholder="Say something..." autofocus></textarea>
   <button id="send" onclick="send()">Send</button>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/marked@17.0.5/marked.min.js" integrity="sha384-tkjnnf9Tzhv5ZFrDroGvUExw9C3EVFo0RFRkzKR8ZX4b5Psoec4yb1PlD8Jh4j4H" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@17.0.5/lib/marked.umd.min.js" integrity="sha384-8sMLLkI7/d8GdACBnOSE5yD5cvHCVaHP9aKgF3Op8Q8QZUPv43Po3rikNgBhHR/T" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
 <script>
 const messages = [];
