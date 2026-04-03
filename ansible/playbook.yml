@@ -123,18 +123,33 @@
       failed_when: false
       changed_when: false
 
+    - name: Get auth token for scheduler API
+      command: gcloud auth print-access-token
+      register: gcp_token
+      changed_when: false
+      no_log: true
+
     - name: Configure scheduler jobs
-      command: >
-        gcloud scheduler jobs {{ 'update' if item.rc == 0 else 'create' }} http {{ service }}-{{ item.item.name }}
-        --location={{ region }}
-        --schedule="{{ item.item.cron }}"
-        --time-zone=America/Chicago
-        --uri=https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service }}?updateMask=template.scaling.minInstanceCount
-        --http-method=PATCH
-        {{ '--update-headers' if item.rc == 0 else '--headers' }}=Content-Type=application/json
-        --message-body='{"template":{"scaling":{"minInstanceCount":{{ item.item.min }}}}}'
-        --oauth-service-account-email={{ sa }}
-        --project={{ project_id }} --quiet
+      uri:
+        url: >-
+          https://cloudscheduler.googleapis.com/v1/projects/{{ project_id }}/locations/{{ region }}/jobs{{
+          '' if item.rc != 0 else '/' + service + '-' + item.item.name }}
+        method: "{{ 'POST' if item.rc != 0 else 'PATCH' }}"
+        headers:
+          Authorization: "Bearer {{ gcp_token.stdout }}"
+        body_format: json
+        body:
+          name: "projects/{{ project_id }}/locations/{{ region }}/jobs/{{ service }}-{{ item.item.name }}"
+          schedule: "{{ item.item.cron }}"
+          timeZone: America/Chicago
+          httpTarget:
+            uri: "https://run.googleapis.com/v2/projects/{{ project_id }}/locations/{{ region }}/services/{{ service }}?updateMask=template.scaling.minInstanceCount"
+            httpMethod: PATCH
+            headers:
+              Content-Type: application/json
+            body: "{{ {'template': {'scaling': {'minInstanceCount': item.item.min}}} | to_json | b64encode }}"
+            oauthToken:
+              serviceAccountEmail: "{{ sa }}"
       loop: "{{ jobs.results }}"
       loop_control:
         label: "{{ item.item.name }}"
