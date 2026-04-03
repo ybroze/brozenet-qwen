@@ -1,6 +1,6 @@
 # Qwen / Ollama on Cloud Run
 
-*Do you want Qwen? Because this is how we get Qwen.*
+*Do you want Qwen? Because this is how you get Qwen.*
 
 Ollama serving an LLM on a Cloud Run GPU instance. Scale-to-zero with a wake/sleep schedule.
 
