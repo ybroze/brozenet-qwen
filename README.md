@@ -1,4 +1,4 @@
-# Ollama on Cloud Run
+# Qwen / Ollama on Cloud Run
 
 *Do you want Qwen? Because this is how we get Qwen.*
 
