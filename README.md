@@ -4,7 +4,7 @@ Ollama serving Qwen3 30B-A3B on an L4 GPU via Cloud Run. Scale-to-zero with a wa
 
 ## Prerequisites
 
-- `pip install ansible requests`
+- `pip install -r requirements.txt && pip install ansible`
 - GPU quota: request 1x L4 in `us-east4` at [Cloud Console Quotas](https://console.cloud.google.com/iam-admin/quotas) (filter "Total Nvidia L4 GPU allocation without zonal redundancy")
 
 ## Deploy
@@ -35,6 +35,14 @@ export QWEN_API_KEY=$(gcloud secrets versions access latest --secret=qwen-api-ke
 ```
 
 Streams responses token-by-token. Maintains conversation history within the session. `Ctrl-C` to quit.
+
+### Web UI
+
+```bash
+./chat-server.py
+```
+
+Then open [http://localhost:5000](http://localhost:5000) in your browser.
 
 ### One-Shot API Call
 
