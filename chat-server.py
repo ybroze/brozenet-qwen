@@ -26,8 +26,8 @@ HTML = """\
   body { font-family: system-ui, sans-serif; background: #1a1a1a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
   #messages { flex: 1; overflow-y: auto; padding: 1rem; }
   .msg { max-width: 48rem; margin: 0 auto 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; white-space: pre-wrap; word-wrap: break-word; }
-  .user { background: #2a4a7f; margin-left: 8rem; }
-  .assistant { background: #2a2a2a; margin-right: 8rem; }
+  .user { background: #2a4a7f; margin-right: 0; margin-left: auto; }
+  .assistant { background: #2a2a2a; margin-left: 0; margin-right: auto; }
   #input-bar { display: flex; padding: 0.75rem; background: #111; gap: 0.5rem; }
   #input { flex: 1; padding: 0.75rem; border: 1px solid #333; border-radius: 0.5rem; background: #222; color: #e0e0e0; font-size: 1rem; font-family: inherit; resize: none; }
   #input:focus { outline: none; border-color: #4a7abf; }
