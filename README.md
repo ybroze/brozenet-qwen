@@ -56,7 +56,7 @@ Streams responses token-by-token. Maintains conversation history within the sess
 ./chat-server.py
 ```
 
-Then open [http://localhost:5000](http://localhost:5000) in your browser.
+Then open [http://localhost:5678](http://localhost:5678) in your browser.
 
 ### One-Shot API Call
 
@@ -87,6 +87,83 @@ gcloud run services update qwen-llm --min-instances=1 --region=us-east4 --projec
 # sleep
 gcloud run services update qwen-llm --min-instances=0 --region=us-east4 --project=my-gcp-project
 ```
+
+## Novice's Guide
+
+If Yuri gave you an API key and you've never used a terminal before, this section is for you.
+
+### 1. Open a terminal
+
+- **Mac** — Open Spotlight (`Cmd + Space`), type `Terminal`, press Enter.
+- **Windows** — Install [Git for Windows](https://gitforwindows.org/). It includes Git Bash, which is your terminal. Open it from the Start menu.
+- **Linux** — You already know where your terminal is.
+
+### 2. Install Git
+
+- **Mac** — The first time you run `git` in Terminal, macOS will prompt you to install the Command Line Tools. Say yes and wait for it to finish.
+- **Windows** — Git for Windows (step 1) includes Git. You're done.
+- **Linux** — `sudo apt install git` (Debian/Ubuntu) or `sudo dnf install git` (Fedora).
+
+Verify it worked:
+
+```bash
+git --version
+```
+
+### 3. Install Python
+
+You need Python 3.
+
+- **Mac** — macOS includes Python 3 on recent versions. Check with `python3 --version`. If it's missing, install it from [python.org](https://www.python.org/downloads/).
+- **Windows** — Download from [python.org](https://www.python.org/downloads/). During installation, **check the box that says "Add Python to PATH"**.
+- **Linux** — `sudo apt install python3 python3-pip` or equivalent.
+
+### 4. Get the code
+
+```bash
+git clone https://github.com/ybroze/brozenet-qwen.git
+cd brozenet-qwen
+```
+
+### 5. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+(Use `pip3` instead of `pip` if your system distinguishes them.)
+
+### 6. Set your environment variables
+
+Yuri will give you an API key. Set it in your terminal session like this:
+
+```bash
+export QWEN_HOST=https://qwen.broze.net
+export QWEN_API_KEY=paste-your-key-here
+```
+
+These only last for the current terminal session. If you close the terminal, you'll need to set them again. To make them permanent, add those two lines to your shell profile:
+
+- **Mac / Linux** — `~/.bashrc` or `~/.zshrc`
+- **Windows (Git Bash)** — `~/.bashrc`
+
+Then restart your terminal (or run `source ~/.bashrc`).
+
+### 7. Chat
+
+```bash
+./chat.py
+```
+
+Type your message and press Enter. The AI responds in real time. Press `Ctrl-C` to quit.
+
+Or, for a web interface:
+
+```bash
+./chat-server.py
+```
+
+Then open [http://localhost:5678](http://localhost:5678) in your browser.
 
 ## Architecture
 
