@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-HOST="${QWEN_HOST:-https://qwen.broze.net}"
+: "${QWEN_HOST:?Set QWEN_HOST}"
 : "${QWEN_API_KEY:?Set QWEN_API_KEY}"
+HOST="$QWEN_HOST"
 
 pass=0
 fail=0

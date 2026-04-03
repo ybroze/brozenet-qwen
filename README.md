@@ -1,31 +1,45 @@
-# Qwen on Cloud Run
+# Ollama on Cloud Run
 
-Ollama serving Qwen3 30B-A3B on an L4 GPU via Cloud Run. Scale-to-zero with a wake/sleep schedule. ~$294/mo at 7am–9pm daily.
+*Do you want Qwen? Because this is how we get Qwen.*
+
+Ollama serving an LLM on a Cloud Run GPU instance. Scale-to-zero with a wake/sleep schedule.
+
+## Configuration
+
+Nothing is hardcoded. You provide two values everywhere they're needed:
+
+| Variable | Where | Example |
+|----------|-------|---------|
+| `project_id` | `deploy.sh` `-e` arg | `my-gcp-project` |
+| `domain` | `deploy.sh` `-e` arg | `llm.example.com` |
+| `QWEN_HOST` | Environment variable for client scripts | `https://llm.example.com` |
+| `QWEN_API_KEY` | Environment variable for client scripts | *(auto-generated on first deploy)* |
 
 ## Prerequisites
 
 - `pip install -r requirements.txt && pip install ansible`
-- GPU quota: request 1x L4 in `us-east4` at [Cloud Console Quotas](https://console.cloud.google.com/iam-admin/quotas) (filter "Total Nvidia L4 GPU allocation without zonal redundancy")
+- GPU quota: request 1x L4 in your target region at [Cloud Console Quotas](https://console.cloud.google.com/iam-admin/quotas) (filter "Total Nvidia L4 GPU allocation without zonal redundancy")
+- A custom domain with DNS managed by you (point it at the Cloud Run service after first deploy)
 
 ## Deploy
 
 ```bash
-./deploy.sh        # builds via Cloud Build, deploys to Cloud Run
-./deploy.sh -vvv   # verbose
+./deploy.sh -e project_id=my-gcp-project -e domain=llm.example.com
 ```
 
 The first deploy generates an API key in Secret Manager. Retrieve it with:
 
 ```bash
-gcloud secrets versions access latest --secret=qwen-api-key --project=broze-net
+gcloud secrets versions access latest --secret=qwen-api-key --project=my-gcp-project
 ```
 
 ## Usage
 
-Export your API key:
+All client scripts require `QWEN_HOST` and `QWEN_API_KEY`:
 
 ```bash
-export QWEN_API_KEY=$(gcloud secrets versions access latest --secret=qwen-api-key --project=broze-net)
+export QWEN_HOST=https://llm.example.com
+export QWEN_API_KEY=$(gcloud secrets versions access latest --secret=qwen-api-key --project=my-gcp-project)
 ```
 
 ### Interactive Chat
@@ -48,7 +62,7 @@ Then open [http://localhost:5000](http://localhost:5000) in your browser.
 
 ```bash
 curl -H "Authorization: Bearer $QWEN_API_KEY" \
-  https://qwen.broze.net/api/chat \
+  "$QWEN_HOST/api/chat" \
   -d '{"model":"qwen3:30b-a3b","messages":[{"role":"user","content":"Hello"}],"stream":false}'
 ```
 
@@ -68,10 +82,10 @@ Manual override:
 
 ```bash
 # wake
-gcloud run services update qwen-llm --min-instances=1 --region=us-east4 --project=broze-net
+gcloud run services update qwen-llm --min-instances=1 --region=us-east4 --project=my-gcp-project
 
 # sleep
-gcloud run services update qwen-llm --min-instances=0 --region=us-east4 --project=broze-net
+gcloud run services update qwen-llm --min-instances=0 --region=us-east4 --project=my-gcp-project
 ```
 
 ## Architecture

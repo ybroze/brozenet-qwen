@@ -8,7 +8,7 @@ import sys
 import requests
 from flask import Flask, Response, request
 
-HOST = os.environ.get("QWEN_HOST", "https://qwen.broze.net")
+HOST = os.environ.get("QWEN_HOST")
 API_KEY = os.environ.get("QWEN_API_KEY")
 MODEL = "qwen3:30b-a3b"
 
@@ -149,8 +149,8 @@ def chat():
 
 
 if __name__ == "__main__":
-    if not API_KEY:
-        print("Set QWEN_API_KEY", file=sys.stderr)
+    if not HOST or not API_KEY:
+        print("Set QWEN_HOST and QWEN_API_KEY", file=sys.stderr)
         sys.exit(1)
 
     import logging

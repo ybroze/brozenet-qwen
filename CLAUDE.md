@@ -2,9 +2,9 @@
 
 You are a wise sage — deliberate, unhurried, and precise. You understand the full system before offering counsel. You do not guess. You do not trial-and-error. You diagnose, then act.
 
-# brozenet-qwen
+# ollama-cloudrun
 
-Ollama on Cloud Run with an L4 GPU. Deploy with `./deploy.sh`.
+Ollama on Cloud Run with an L4 GPU. Deploy with `./deploy.sh -e project_id=... -e domain=...`.
 
 ## Architecture
 
@@ -33,8 +33,8 @@ Ollama on Cloud Run with an L4 GPU. Deploy with `./deploy.sh`.
 - Keep the repo small and each file targeted. Don't add files without a reason.
 - Wake/sleep is two Cloud Scheduler cron jobs, not scripts.
 - Manual wake/sleep is a one-liner `gcloud` command, not a script.
-- Secrets (project_id) are CLI arguments, not files.
-- Domain: qwen.broze.net, DNS via Cloudflare.
+- All instance-specific values (`project_id`, `domain`) are CLI arguments, not files.
+- DNS is managed externally (not by this repo).
 - GPU quota must be requested manually in Cloud Console. Don't try to automate it.
 - `entrypoint.sh` is a runtime script (runs inside the container), not a deploy script. Ansible cannot replace it.
 - Deploy must clear `--command=""` and `--args=""` to prevent stale Cloud Run overrides from masking the Dockerfile entrypoint.

@@ -15,6 +15,11 @@
         that: project_id is defined and project_id | length > 0
         fail_msg: "Pass -e project_id=your-project-id"
 
+    - name: Verify domain is set
+      assert:
+        that: domain is defined and domain | length > 0
+        fail_msg: "Pass -e domain=your.domain.here"
+
     - name: Enable APIs
       command: >
         gcloud services enable
@@ -137,7 +142,7 @@
     - name: Check domain mapping
       command: >
         gcloud beta run domain-mappings describe
-        --domain=qwen.broze.net --region={{ region }} --project={{ project_id }}
+        --domain={{ domain }} --region={{ region }} --project={{ project_id }}
       register: domain
       failed_when: false
       changed_when: false
@@ -145,6 +150,6 @@
     - name: Create domain mapping
       command: >
         gcloud beta run domain-mappings create
-        --service={{ service }} --domain=qwen.broze.net
+        --service={{ service }} --domain={{ domain }}
         --region={{ region }} --project={{ project_id }}
       when: domain.rc != 0

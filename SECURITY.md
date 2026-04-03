@@ -42,7 +42,7 @@ No automated rotation exists. To rotate the API key:
 
 ```bash
 printf "$(python3 -c "import secrets; print(secrets.token_urlsafe(48), end='')")" \
-  | gcloud secrets versions add qwen-api-key --data-file=- --project=broze-net
+  | gcloud secrets versions add qwen-api-key --data-file=- --project=YOUR_PROJECT_ID
 gcloud run services update qwen-llm --region=us-east4  # picks up latest secret version
 ```
 
